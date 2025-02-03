@@ -15,13 +15,17 @@ type UI struct {
 	primaryCheck        *tview.Table
 	checks              *tview.Table    // summary of all checks
 	details             *tview.TextView // where errors from checks are displayed
-	form                *tview.Form     // contains "Configure network" button
+	netConfigForm       *tview.Form     // contains "Configure network" button
 	timeoutModal        *tview.Modal    // popup window that times out
 	splashScreen        *tview.Modal    // display initial waiting message
 	nmtuiActive         atomic.Value
 	timeoutDialogActive atomic.Value
 	timeoutDialogCancel chan bool
 	dirty               atomic.Value // dirty flag set if the user interacts with the ui
+
+	rendezvousIPForm       *tview.Form
+	invalidIPAddressModal  *tview.Modal
+	rendezvousIPFormActive atomic.Value
 
 	focusableItems []tview.Primitive // the list of widgets that can be focused
 	focusedItem    int               // the current focused widget
@@ -48,12 +52,33 @@ func (u *UI) GetPages() *tview.Pages {
 }
 
 func (u *UI) returnFocusToChecks() {
+	// reset u.focusableItems to those on the checks page
+	u.focusableItems = []tview.Primitive{
+		u.netConfigForm.GetButton(0),
+		u.netConfigForm.GetButton(1),
+	}
 	u.pages.SwitchToPage(PAGE_CHECKSCREEN)
 	// shifting focus back to the "Configure network"
 	// button requires setting focus in this sequence
 	// form -> form-button
-	u.app.SetFocus(u.form)
-	u.app.SetFocus(u.form.GetButton(0))
+	u.app.SetFocus(u.netConfigForm)
+	u.app.SetFocus(u.netConfigForm.GetButton(0))
+}
+
+func (u *UI) setFocusToRendezvousIP() {
+	u.setIsRendezousIPFormActive(true)
+	// reset u.focusableItems to those on the rendezvous IP page
+	u.focusableItems = []tview.Primitive{
+		u.rendezvousIPForm.GetButton(0),
+		u.rendezvousIPForm.GetFormItemByLabel(FIELD_RENDEZVOUS_HOST_IP),
+	}
+
+	u.pages.SwitchToPage(PAGE_RENDEZVOUS_IP)
+	// shifting focus back to the "Configure network"
+	// button requires setting focus in this sequence
+	// form -> form-button
+	u.app.SetFocus(u.rendezvousIPForm)
+	u.app.SetFocus(u.rendezvousIPForm.GetFormItemByLabel(FIELD_RENDEZVOUS_HOST_IP))
 }
 
 func (u *UI) IsNMTuiActive() bool {
@@ -68,6 +93,14 @@ func (u *UI) IsTimeoutDialogActive() bool {
 	return u.timeoutDialogActive.Load().(bool)
 }
 
+func (u *UI) setIsRendezousIPFormActive(isActive bool) {
+	u.rendezvousIPFormActive.Store(isActive)
+}
+
+func (u *UI) IsRendezvousIPFormActive() bool {
+	return u.rendezvousIPFormActive.Load().(bool)
+}
+
 func (u *UI) IsDirty() bool {
 	return u.dirty.Load().(bool)
 }
@@ -77,8 +110,12 @@ func (u *UI) create(config checks.Config) {
 	u.createCheckPage(config)
 	u.createTimeoutModal(config)
 	u.createSplashScreen()
+	u.createRendezvousIPPage(config)
+	u.createInvalidIPAddressModal()
 	u.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		u.dirty.Store(true)
+		if !u.IsRendezvousIPFormActive() {
+			u.dirty.Store(true)
+		}
 		return event
 	})
 }
